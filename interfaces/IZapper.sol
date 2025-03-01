@@ -77,30 +77,38 @@ interface IZapper {
   /// @param vault Address of the target vault
   /// @param tokenIn Address of the input token
   /// @param tokenInAmount Amount of input tokens
+  /// @param assetsIn Amount of assets deposited
   /// @param shares Amount of vault shares received
   /// @param fee Amount of fee paid
+  /// @param returnedAssets Array of any remaining tokens returned to caller
   event ZapIn(
     address indexed user,
     address indexed vault,
     address tokenIn,
     uint256 tokenInAmount,
+    uint256 assetsIn,
     uint256 shares,
-    uint256 fee
+    uint256 fee,
+    ReturnedAsset[] returnedAssets
   );
   /// @notice Emitted when tokens are withdrawn from a vault
   /// @param user Address of the withdrawer
   /// @param vault Address of the source vault
   /// @param tokenOut Address of the output token
   /// @param tokenOutAmount Amount of output tokens
+  /// @param assetsOut Amount of assets withdrawn
   /// @param shares Amount of vault shares withdrawn
   /// @param fee Amount of fee paid
+  /// @param returnedAssets Array of any remaining tokens returned to caller
   event ZapOut(
     address indexed user,
     address indexed vault,
     address tokenOut,
     uint256 tokenOutAmount,
+    uint256 assetsOut,
     uint256 shares,
-    uint256 fee
+    uint256 fee,
+    ReturnedAsset[] returnedAssets
   );
 
   /**

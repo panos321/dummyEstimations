@@ -24,6 +24,7 @@ contract ArberaFactory is StrategyFactoryBase {
     address timelock;
     address devfund;
     address treasury;
+    address harvester;
     address wrappedNative;
     address bgt;
     address swapRouter;
@@ -72,6 +73,7 @@ contract ArberaFactory is StrategyFactoryBase {
       params.timelock == address(0) ||
       params.devfund == address(0) ||
       params.treasury == address(0) ||
+      params.harvester == address(0) ||
       params.swapRouter == address(0) ||
       params.lpRouter == address(0) ||
       params.wrappedNative == address(0) ||
@@ -96,7 +98,7 @@ contract ArberaFactory is StrategyFactoryBase {
     strategy = new ArberaStrategy(
       params.asset,
       params.governance,
-      params.strategist,
+      params.harvester,
       address(controller),
       params.timelock,
       params.wrappedNative,

@@ -24,6 +24,7 @@ contract SteerFactory is StrategyFactoryBase {
     address timelock;
     address devfund;
     address treasury;
+    address harvester;
     address wrappedNative;
     address bgt;
     address swapRouter;
@@ -69,6 +70,7 @@ contract SteerFactory is StrategyFactoryBase {
       params.governance == address(0) ||
       params.strategist == address(0) ||
       params.timelock == address(0) ||
+      params.harvester == address(0) ||
       params.devfund == address(0) ||
       params.treasury == address(0) ||
       params.wrappedNative == address(0) ||
@@ -94,7 +96,7 @@ contract SteerFactory is StrategyFactoryBase {
     strategy = new SteerStrategy(
       params.asset,
       params.governance,
-      params.strategist,
+      params.harvester,
       address(controller),
       params.timelock,
       params.wrappedNative,

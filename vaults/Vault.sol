@@ -35,7 +35,7 @@ contract Vault is SphereXProtected, ReentrancyGuard, ERC4626, IVault {
   uint16 public withdrawFee;
 
   /// @notice Minimum ratio of assets that can be deposited into the strategy (95%)
-  uint256 public min = 9500;
+  uint256 public min = 10000;
 
   /// @notice Address with governance privileges
   address public governance;

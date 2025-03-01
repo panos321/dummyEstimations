@@ -7,7 +7,6 @@ import {StrategyBase} from "./StrategyBase.sol";
 import {IInfraredStaking} from "../interfaces/infrared/IInfraredStaking.sol";
 import {ISwapRouter} from "../interfaces/ISwapRouter.sol";
 import {ILpRouter} from "../interfaces/ILpRouter.sol";
-import {ICropSwapLp} from "../interfaces/exchange/Crocswap.sol";
 
 /**
  * @title InfraredStrategy
@@ -21,7 +20,8 @@ contract InfraredStrategy is StrategyBase {
   IInfraredStaking public staking;
   uint256 public rewardTokensLength;
 
-  event RewardTokensLengthSet(uint256 rewardTokensLength);
+  event RewardTokensLengthChanged(uint256 rewardTokensLength);
+  event ChangedStaking(address staking);
 
   /**
    * @notice Initializes the Infrared strategy
@@ -67,7 +67,7 @@ contract InfraredStrategy is StrategyBase {
     _revertAddressZero(stakingAddress);
     staking = IInfraredStaking(stakingAddress);
     rewardTokensLength = rewardTokensCount;
-    emit RewardTokensLengthSet(rewardTokensCount);
+    emit RewardTokensLengthChanged(rewardTokensCount);
   }
 
   /**
@@ -104,9 +104,10 @@ contract InfraredStrategy is StrategyBase {
     for (uint256 i = 0; i < rewardTokensLength; i++) {
       address rewardToken = staking.rewardTokens(i);
       uint256 rewardAmount = IERC20(rewardToken).balanceOf(address(this));
-      if (rewardAmount > 0) {
+      if (rewardToken == address(asset)) {
+        newAssets = rewardAmount;
+      } else if (rewardAmount > 0 && rewardToken != wrappedNative) {
         IERC20(rewardToken).safeTransfer(address(swapRouter), rewardAmount);
-        // reward token is iBGT here
         swapRouter.swapWithDefaultDex(rewardToken, wrappedNative, rewardAmount, 0, address(this));
       }
     }
@@ -145,6 +146,12 @@ contract InfraredStrategy is StrategyBase {
     uint256 newRewardTokensLength
   ) external onlyGovernance sphereXGuardExternal(0xa2c045a3) {
     rewardTokensLength = newRewardTokensLength;
-    emit RewardTokensLengthSet(newRewardTokensLength);
+    emit RewardTokensLengthChanged(newRewardTokensLength);
+  }
+
+  function setStaking(address newStaking) external onlyGovernance {
+    _revertAddressZero(newStaking);
+    staking = IInfraredStaking(newStaking);
+    emit ChangedStaking(newStaking);
   }
 }

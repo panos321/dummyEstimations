@@ -22,6 +22,7 @@ contract MockFactory is StrategyFactoryBase {
     address timelock;
     address devfund;
     address treasury;
+    address harvester;
     address wrappedNative;
     address bgtAddress;
     address swapRouter;
@@ -57,7 +58,7 @@ contract MockFactory is StrategyFactoryBase {
     strategy = new MockStrategy(
       params.asset,
       params.governance,
-      params.strategist,
+      params.harvester,
       address(controller),
       params.timelock,
       params.wrappedNative,

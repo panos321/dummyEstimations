@@ -18,8 +18,6 @@ interface IStrategy {
   error NotTimelock();
   /// @notice Thrown when caller is not governance
   error NotGovernance();
-  /// @notice Thrown when caller is not authorized to whitelist/revoke harvesters
-  error NotAuthorizedForHarvester();
   /// @notice Thrown when trying to withdraw the strategy's main asset
   error CannotWithdrawAsset();
   /// @notice Thrown when vault address is not found for asset

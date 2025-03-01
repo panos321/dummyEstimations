@@ -11,7 +11,9 @@ interface IDexType {
     CAMELOT_V3, // 4
     BEX, // 5
     KODIAK_V3, // 6
-    KODIAK_V2 // 7
+    KODIAK_V2, // 7
+    STEER, // 8
+    GAMMA // 9
   }
 
   /// @notice Emitted when the default DEX is set

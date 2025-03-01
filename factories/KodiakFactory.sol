@@ -24,6 +24,7 @@ contract KodiakFactory is StrategyFactoryBase {
     address timelock;
     address devfund;
     address treasury;
+    address harvester;
     address wrappedNative;
     address bgt;
     address swapRouter;
@@ -71,6 +72,7 @@ contract KodiakFactory is StrategyFactoryBase {
       params.timelock == address(0) ||
       params.devfund == address(0) ||
       params.treasury == address(0) ||
+      params.harvester == address(0) ||
       params.wrappedNative == address(0) ||
       params.bgt == address(0) ||
       params.swapRouter == address(0) ||
@@ -94,7 +96,7 @@ contract KodiakFactory is StrategyFactoryBase {
     strategy = new KodiakStrategy(
       params.asset,
       params.governance,
-      params.strategist,
+      params.harvester,
       address(controller),
       params.timelock,
       params.wrappedNative,

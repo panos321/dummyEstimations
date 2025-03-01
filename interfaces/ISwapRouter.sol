@@ -3,6 +3,8 @@ pragma solidity 0.8.20;
 
 import {IDexType} from "./IDexType.sol";
 
+import {IBeraPool} from "./exchange/Beraswap.sol";
+
 /**
  * @title ISwapRouter
  * @notice Interface for the SwapRouter contract that handles token swaps across multiple DEXes
@@ -13,8 +15,6 @@ interface ISwapRouter is IDexType {
   error InvalidRouterLength();
   /// @notice Thrown when router/factory arrays have mismatched lengths
   error InvalidFactoryLength();
-  /// @notice Thrown when crocQuery arrays have mismatched lengths
-  error InvalidCrocQueryLength();
   /// @notice Thrown when path length is less than 2
   error InvalidPathLength();
   /// @notice Thrown when address is zero
@@ -23,8 +23,6 @@ interface ISwapRouter is IDexType {
   error ZeroRouterAddress();
   /// @notice Thrown when trying to use an unsupported factory
   error FactoryNotSupported();
-  /// @notice Thrown when trying to use an unsupported crocQuery
-  error CrocQueryNotSupported();
   /// @notice Thrown when trying to use an unsupported router
   error RouterNotSupported();
   /// @notice Thrown when no pool is found for a multihop swap
@@ -43,6 +41,8 @@ interface ISwapRouter is IDexType {
   error NoSwapRouteFound();
   /// @notice Thrown when path length exceeds the maximum
   error PathLengthExceeded();
+  /// @notice Thrown when no pool is found for a token pair
+  error NoPoolFound();
 
   // Events
   /// @notice Emitted when the governance is updated
@@ -55,10 +55,11 @@ interface ISwapRouter is IDexType {
   /// @param dex The DEX index
   /// @param factory The factory address
   event SetFactory(uint8 dex, address indexed factory);
-  /// @notice Emitted when crocQuery is set
-  /// @param dex The DEX index
-  /// @param crocQuery The crocQuery address
-  event SetCrocQuery(uint8 dex, address indexed crocQuery);
+  /// @notice Emitted when a pool is set
+  /// @param tokenIn The input token address
+  /// @param tokenOut The output token address
+  /// @param pool The pool address
+  event SetPool(address indexed tokenIn, address indexed tokenOut, address pool);
   /// @notice Emitted when a swap route is set
   /// @param tokenIn The input token address
   /// @param tokenOut The output token address
@@ -71,11 +72,13 @@ interface ISwapRouter is IDexType {
   /// @param tokenOut The output token address
   /// @param dex The DEX type
   /// @param isMultiPath Whether the path is a multi-path swap
+  /// @param pool The pool address
   struct SwapRoutePath {
     address tokenIn;
     address tokenOut;
     DexType dex;
     bool isMultiPath;
+    address pool;
   }
 
   // Functions
@@ -166,7 +169,7 @@ interface ISwapRouter is IDexType {
     address tokenIn,
     address tokenOut,
     uint256 amountIn
-  ) external view returns (uint256 amountOut);
+  ) external returns (uint256 amountOut);
 
   /// @notice Gets a quote for a swap using a specified DEX
   /// @param tokenIn The input token address
@@ -179,7 +182,7 @@ interface ISwapRouter is IDexType {
     address tokenOut,
     uint256 amountIn,
     DexType dex
-  ) external view returns (uint256 amountOut);
+  ) external returns (uint256 amountOut);
 
   /// @notice Gets a quote for a multi-hop swap using the default DEX
   /// @param path Array of token addresses representing the swap path

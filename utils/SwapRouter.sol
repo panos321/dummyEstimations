@@ -6,19 +6,19 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {UniswapRouterV2} from "../interfaces/exchange/UniswapV2.sol";
-import {ICamelotRouterV3} from "../interfaces/exchange/UniswapV3.sol";
 import {IUniswapV3Router} from "../interfaces/exchange/UniswapV3.sol";
 import {IUniswapV3Factory} from "../interfaces/exchange/UniswapV3.sol";
 import {IUniswapV3Pool, IUniswapV3PoolWithUint32FeeProtocol} from "../interfaces/exchange/UniswapV3.sol";
 import {ISwapRouter} from "../interfaces/ISwapRouter.sol";
-import {ICrocMultiSwap, ICrocQuery} from "../interfaces/exchange/Crocswap.sol";
 import {OracleLibrary} from "../libraries/UniswapV3Oracle.sol";
 import {SphereXProtected} from "@spherex-xyz/contracts/src/SphereXProtected.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IBeraPool, IBeraVault, IAsset} from "../interfaces/exchange/Beraswap.sol";
+import {IBalancerQueries} from "../interfaces/IBalancerQueries.sol";
 
 /// @title SwapRouter
 /// @notice Handles token swaps across different decentralized exchanges (DEXes)
-/// @dev Currently supports Uniswap V2/V3, Sushiswap V2/V3, Camelot V3, and BEX
+/// @dev Currently supports Kodiak V2/V3 and BEX
 contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
   using SafeERC20 for IERC20;
   using Address for address;
@@ -29,14 +29,17 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
   /// @notice Address of the wrapped native token (e.g. WBERA/WETH)
   address public immutable wrappedNative;
 
+  /// @notice Address of the BalancerQueries contract
+  address public immutable balancerQueries;
+
   /// @notice Mapping of DEX index to Swap router address
   mapping(uint8 => address) public routers;
 
   /// @notice Mapping of DEX index to Swap factory address
   mapping(uint8 => address) public factories;
 
-  /// @notice CrocQuery contract to query croc pools
-  mapping(uint8 => address) public crocQueries;
+  /// @notice Mapping of tokenIn to tokenOut to BEX pool address
+  mapping(address tokenIn => mapping(address tokenOut => address pool)) public pools;
 
   /// @notice Mapping of tokenIn to tokenOut to swap routes
   mapping(address tokenIn => mapping(address tokenOut => SwapRoutePath[])) public swapRoutes;
@@ -53,21 +56,21 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
   constructor(
     address governanceAddress,
     address wrappedNativeAddress,
+    address balancerQueriesAddress,
     DexType defaultDexType,
     uint8[] memory dexIndex,
     address[] memory routerAddresses,
-    address[] memory factoryAddresses,
-    address[] memory crocQueryAddresses
+    address[] memory factoryAddresses
   ) {
     _revertAddressZero(governanceAddress);
     _revertAddressZero(wrappedNativeAddress);
     governance = governanceAddress;
     wrappedNative = wrappedNativeAddress;
+    balancerQueries = balancerQueriesAddress;
     defaultDex = defaultDexType;
 
     if (dexIndex.length != routerAddresses.length) revert InvalidRouterLength();
     if (dexIndex.length != factoryAddresses.length) revert InvalidFactoryLength();
-    if (dexIndex.length != crocQueryAddresses.length) revert InvalidCrocQueryLength();
 
     for (uint8 i = 0; i < dexIndex.length; i++) {
       if (routerAddresses[i] == address(0)) revert ZeroRouterAddress();
@@ -78,11 +81,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
       if (factoryAddresses[i] == address(0)) continue; // ignore if no factory is set
       factories[dexIndex[i]] = factoryAddresses[i];
       emit SetFactory(dexIndex[i], factoryAddresses[i]);
-    }
-    for (uint8 i = 0; i < dexIndex.length; i++) {
-      if (crocQueryAddresses[i] == address(0)) continue; // ignore if no crocQuery is set
-      crocQueries[dexIndex[i]] = crocQueryAddresses[i];
-      emit SetCrocQuery(dexIndex[i], crocQueryAddresses[i]);
     }
   }
 
@@ -148,13 +146,21 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     emit SetFactory(dex, factory);
   }
 
-  /// @notice Sets the crocQuery contract
-  /// @param dex The DEX index
-  /// @param crocQuery The crocQuery address
-  function setCrocQuery(uint8 dex, address crocQuery) external onlyGovernance sphereXGuardExternal(0xb1e6fca3) {
-    _revertAddressZero(crocQuery);
-    crocQueries[dex] = crocQuery;
-    emit SetCrocQuery(dex, crocQuery);
+  /// @notice Sets a pool address for a token pair
+  /// @param tokenIn Address of input token
+  /// @param tokenOut Address of output token
+  /// @param pool Address of pool
+  function setPool(
+    address tokenIn,
+    address tokenOut,
+    address pool
+  ) external onlyGovernance sphereXGuardExternal(0x93b83854) {
+    _revertAddressZero(pool);
+    _revertAddressZero(tokenIn);
+    _revertAddressZero(tokenOut);
+    pools[tokenIn][tokenOut] = pool;
+    pools[tokenOut][tokenIn] = pool;
+    emit SetPool(tokenIn, tokenOut, pool);
   }
 
   /// @notice Sets a swap route for a token pair
@@ -172,6 +178,11 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     if (swapRouteForward.length > 0) delete swapRoutes[tokenIn][tokenOut];
     for (uint256 i = 0; i < path.length; i++) {
       swapRouteForward.push(path[i]);
+      // if the pool is available, set the pool for the token pair
+      if (!path[i].isMultiPath && path[i].pool != address(0)) {
+        pools[path[i].tokenIn][path[i].tokenOut] = path[i].pool;
+        pools[path[i].tokenOut][path[i].tokenIn] = path[i].pool;
+      }
     }
 
     if (reversePath) {
@@ -184,7 +195,8 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
             tokenIn: inversePath.tokenOut,
             tokenOut: inversePath.tokenIn,
             dex: inversePath.dex,
-            isMultiPath: inversePath.isMultiPath
+            isMultiPath: inversePath.isMultiPath,
+            pool: inversePath.pool
           })
         );
       }
@@ -227,6 +239,13 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     DexType dex
   ) public nonReentrant sphereXGuardPublic(0x789bf729, 0x60a14780) returns (uint256 amountOut) {
     validateSwapParams(tokenIn, tokenOut, amountIn, recipient);
+
+    if (dex == DexType.BEX) {
+      address pool = pools[tokenIn][tokenOut];
+      if (pool == address(0)) revert NoPoolFound();
+      return _swapBex(tokenIn, tokenOut, amountIn, amountOutMinimum, recipient, IBeraPool(pool));
+    }
+
     address router = routers[uint8(dex)];
     if (router == address(0)) revert RouterNotSupported();
 
@@ -237,12 +256,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     } else if (dex == DexType.UNISWAP_V2 || dex == DexType.SUSHISWAP_V2 || dex == DexType.KODIAK_V2) {
       if (router == address(0)) revert RouterNotSupported();
       return _swapV2(tokenIn, tokenOut, amountIn, amountOutMinimum, recipient, router);
-    } else if (dex == DexType.CAMELOT_V3) {
-      return _swapCamelotV3(tokenIn, tokenOut, amountIn, amountOutMinimum, recipient, router);
-    } else if (dex == DexType.BEX) {
-      address crocQuery = crocQueries[uint8(dex)];
-      if (crocQuery == address(0)) revert CrocQueryNotSupported();
-      return _swapCroc(tokenIn, tokenOut, amountIn, amountOutMinimum, recipient, router, crocQuery);
     }
 
     revert UnsupportedDexType();
@@ -282,9 +295,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
       return _swapV3WithPath(path, amountIn, amountOutMinimum, recipient, routers[uint8(dex)], factories[uint8(dex)]);
     } else if (dex == DexType.UNISWAP_V2 || dex == DexType.SUSHISWAP_V2 || dex == DexType.KODIAK_V2) {
       return _swapV2WithPath(path, amountIn, amountOutMinimum, recipient, routers[uint8(dex)]);
-    } else if (dex == DexType.BEX) {
-      return
-        _swapCrocWithPath(path, amountIn, amountOutMinimum, recipient, routers[uint8(dex)], crocQueries[uint8(dex)]);
     }
 
     revert UnsupportedDexType();
@@ -299,10 +309,11 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     address tokenIn,
     address tokenOut,
     uint256 amountIn
-  ) external view returns (uint256 amountOut) {
+  ) external returns (uint256 amountOut) {
     return getQuote(tokenIn, tokenOut, amountIn, defaultDex);
   }
 
+  // TODO: fix qoute for other dexes
   /// @notice Gets quote for token swap using specified DEX
   /// @param tokenIn Address of input token
   /// @param tokenOut Address of output token
@@ -314,14 +325,13 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     address tokenOut,
     uint256 amountIn,
     DexType dex
-  ) public view returns (uint256 amountOut) {
+  ) public returns (uint256 amountOut) {
     _revertAddressZero(tokenIn);
     _revertAddressZero(tokenOut);
     _revertZeroAmount(amountIn);
 
     address router = routers[uint8(dex)];
     address factory = factories[uint8(dex)];
-    address crocQuery = crocQueries[uint8(dex)];
 
     if (dex == DexType.KODIAK_V3) {
       if (factory == address(0)) revert FactoryNotSupported();
@@ -333,9 +343,9 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
       if (router == address(0)) revert RouterNotSupported();
       return _getQuoteV2(tokenIn, tokenOut, amountIn, router);
     } else if (dex == DexType.BEX) {
-      if (crocQuery == address(0)) revert CrocQueryNotSupported();
-      if (router == address(0)) revert RouterNotSupported();
-      return _getQuoteCroc(tokenIn, tokenOut, amountIn, router, crocQuery);
+      address pool = pools[tokenIn][tokenOut];
+      if (pool == address(0)) revert NoPoolFound();
+      return _getBexQuote(IBeraPool(pool).getPoolId(), tokenIn, tokenOut, amountIn);
     }
 
     revert UnsupportedDexType();
@@ -367,7 +377,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
 
     address factory = factories[uint8(dex)];
     address router = routers[uint8(dex)];
-    address crocQuery = crocQueries[uint8(dex)];
 
     if (dex == DexType.KODIAK_V3) {
       if (factory == address(0)) revert FactoryNotSupported();
@@ -378,10 +387,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     } else if (dex == DexType.UNISWAP_V2 || dex == DexType.SUSHISWAP_V2 || dex == DexType.KODIAK_V2) {
       if (router == address(0)) revert RouterNotSupported();
       return _getQuoteV2WithPath(path, amountIn, router);
-    } else if (dex == DexType.BEX) {
-      if (crocQuery == address(0)) revert CrocQueryNotSupported();
-      if (router == address(0)) revert RouterNotSupported();
-      return _getQuoteCrocWithPath(path, amountIn, router, crocQuery);
     }
 
     revert UnsupportedDexType();
@@ -418,7 +423,7 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     address tokenOut,
     address factory
   ) internal view returns (address bestPool, uint128 highestLiquidity) {
-    uint24[4] memory fees = [uint24(500), uint24(3000), uint24(1000), uint24(10000)];
+    uint24[5] memory fees = [uint24(500), uint24(3000), uint24(1000), uint24(10000), uint24(20000)];
 
     for (uint256 i = 0; i < fees.length; i++) {
       address poolAddress = IUniswapV3Factory(factory).getPool(tokenIn, tokenOut, fees[i]);
@@ -433,29 +438,12 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     }
   }
 
-  /// @notice Finds the most liquid Croc pool for a token pair
+  /// @notice Performs a swap using a swap route
   /// @param tokenIn Address of input token
   /// @param tokenOut Address of output token
-  /// @param crocQuery Address of CrocQuery contract
-  /// @return bestPoolIdx Index of best pool
-  /// @return highestLiquidity Liquidity amount of best pool
-  function _findMostLiquidCrocPool(
-    address tokenIn,
-    address tokenOut,
-    address crocQuery
-  ) internal view returns (uint256 bestPoolIdx, uint128 highestLiquidity) {
-    uint256[3] memory poolIdx = [uint256(36000), uint256(36001), uint256(36002)];
-    for (uint256 i = 0; i < poolIdx.length; i++) {
-      // base-side token in the pool's pair is always the smaller address
-      (address base, address quote) = tokenIn < tokenOut ? (tokenIn, tokenOut) : (tokenOut, tokenIn);
-      uint128 liquidity = ICrocQuery(crocQuery).queryLiquidity(base, quote, poolIdx[i]);
-      if (liquidity > highestLiquidity) {
-        highestLiquidity = liquidity;
-        bestPoolIdx = poolIdx[i];
-      }
-    }
-  }
-
+  /// @param amountIn Amount of input tokens
+  /// @param amountOutMinimum Minimum amount of output tokens
+  /// @param recipient Address to receive output tokens
   function _swapWithRoute(
     address tokenIn,
     address tokenOut,
@@ -467,7 +455,39 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     if (currentPathLength >= MAX_PATH_LENGTH) revert PathLengthExceeded();
 
     SwapRoutePath[] memory route = swapRoutes[tokenIn][tokenOut];
-    if (route.length == 0) revert NoSwapRouteFound();
+    if (tokenIn == tokenOut) {
+      amountOut = amountIn;
+      route = new SwapRoutePath[](0);
+    } else if (route.length == 0) {
+      if (tokenIn == wrappedNative || tokenOut == wrappedNative) {
+        // if there is no route, add a direct route through wrapped native
+        route = new SwapRoutePath[](1);
+        route[0] = SwapRoutePath({
+          tokenIn: tokenIn,
+          tokenOut: tokenOut,
+          dex: DexType.KODIAK_V3,
+          isMultiPath: false,
+          pool: address(0)
+        });
+      } else {
+        // if there is no route, add a multihop route through wrapped native
+        route = new SwapRoutePath[](2);
+        route[0] = SwapRoutePath({
+          tokenIn: tokenIn,
+          tokenOut: wrappedNative,
+          dex: DexType.KODIAK_V3,
+          isMultiPath: swapRoutes[tokenIn][wrappedNative].length > 0,
+          pool: address(0)
+        });
+        route[1] = SwapRoutePath({
+          tokenIn: wrappedNative,
+          tokenOut: tokenOut,
+          dex: DexType.KODIAK_V3,
+          isMultiPath: swapRoutes[wrappedNative][tokenOut].length > 0,
+          pool: address(0)
+        });
+      }
+    }
 
     for (uint256 i = 0; i < route.length; i++) {
       SwapRoutePath memory path = route[i];
@@ -479,8 +499,54 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
       }
       amountIn = amountOut;
     }
+
     if (amountOut < amountOutMinimum) revert InsufficientOutputAmount(amountOut, amountOutMinimum);
     IERC20(tokenOut).safeTransfer(recipient, amountOut);
+    return amountOut;
+  }
+
+  /// @notice Performs a swap using a BEX pool
+  /// @param tokenIn Address of input token
+  /// @param tokenOut Address of output token
+  /// @param amountIn Amount of input tokens
+  /// @param amountOutMinimum Minimum amount of output tokens
+  /// @param recipient Address to receive output tokens
+  /// @param pool BEX pool address
+  function _swapBex(
+    address tokenIn,
+    address tokenOut,
+    uint256 amountIn,
+    uint256 amountOutMinimum,
+    address recipient,
+    IBeraPool pool
+  ) internal returns (uint256 amountOut) {
+    bytes32 poolId = pool.getPoolId();
+    address beraVault = pool.getVault();
+
+    //create a new single swap struct
+    IBeraVault.SingleSwap memory singleSwap = IBeraVault.SingleSwap({
+      poolId: poolId,
+      kind: IBeraVault.SwapKind.GIVEN_IN,
+      assetIn: IAsset(tokenIn),
+      assetOut: IAsset(tokenOut),
+      amount: amountIn,
+      userData: bytes("")
+    });
+
+    //create a new fund management struct
+    IBeraVault.FundManagement memory fundManagement = IBeraVault.FundManagement({
+      sender: address(this),
+      fromInternalBalance: false,
+      recipient: payable(recipient),
+      toInternalBalance: false
+    });
+
+    // approve the beraVault to spend the tokenIn
+    IERC20(tokenIn).forceApprove(beraVault, amountIn);
+
+    //call the swap function
+    amountOut = IBeraVault(beraVault).swap(singleSwap, fundManagement, amountOutMinimum, block.timestamp);
+
     return amountOut;
   }
 
@@ -620,160 +686,6 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
     if (amountOut < amountOutMinimum) revert InsufficientOutputAmount(amountOut, amountOutMinimum);
   }
 
-  /// @notice Performs a swap using Camelot V3
-  /// @param tokenIn Address of input token
-  /// @param tokenOut Address of output token
-  /// @param amountIn Amount of input tokens
-  /// @param amountOutMinimum Minimum amount of output tokens
-  /// @param recipient Address to receive output tokens
-  /// @return amountOut Amount of output tokens received
-  function _swapCamelotV3(
-    address tokenIn,
-    address tokenOut,
-    uint256 amountIn,
-    uint256 amountOutMinimum,
-    address recipient,
-    address router
-  ) internal sphereXGuardInternal(0x43ac8f1c) returns (uint256 amountOut) {
-    IERC20(tokenIn).forceApprove(router, amountIn);
-    ICamelotRouterV3.ExactInputSingleParams memory params = ICamelotRouterV3.ExactInputSingleParams({
-      tokenIn: tokenIn,
-      tokenOut: tokenOut,
-      recipient: recipient,
-      deadline: block.timestamp,
-      amountIn: amountIn,
-      amountOutMinimum: amountOutMinimum,
-      sqrtPriceLimitX96: 0
-    });
-    return ICamelotRouterV3(router).exactInputSingle(params);
-  }
-
-  /// @notice Performs a swap using Croc Multi Swap
-  /// @param tokenIn Address of input token
-  /// @param tokenOut Address of output token
-  /// @param amountIn Amount of input tokens
-  /// @param amountOutMinimum Minimum amount of output tokens
-  /// @param recipient Address to receive output tokens
-  /// @param router Croc Multi Swap router address
-  /// @param crocQuery CrocQuery contract address
-  /// @return amountOut Amount of output tokens received
-  function _swapCroc(
-    address tokenIn,
-    address tokenOut,
-    uint256 amountIn,
-    uint256 amountOutMinimum,
-    address recipient,
-    address router,
-    address crocQuery
-  ) internal sphereXGuardInternal(0xeecfdaae) returns (uint256 amountOut) {
-    IERC20(tokenIn).forceApprove(router, amountIn);
-    (, uint128 liquidity) = _findMostLiquidCrocPool(tokenIn, tokenOut, crocQuery);
-    address[] memory path;
-    if (liquidity != 0) {
-      path = new address[](2);
-      path[0] = tokenIn;
-      path[1] = tokenOut;
-    } else {
-      path = new address[](3);
-      path[0] = tokenIn;
-      path[1] = wrappedNative;
-      path[2] = tokenOut;
-    }
-    return _swapCrocWithPath(path, amountIn, amountOutMinimum, recipient, router, crocQuery);
-  }
-
-  /// @notice Performs a swap using Croc Multi Swap with a specified path
-  /// @param path Array of token addresses in swap path
-  /// @param amountIn Amount of input tokens
-  /// @param amountOutMinimum Minimum amount of output tokens
-  /// @param recipient Address to receive output tokens
-  /// @param router Croc Multi Swap router address
-  /// @param crocQuery CrocQuery contract address
-  /// @return amountOut Amount of output tokens received
-  function _swapCrocWithPath(
-    address[] memory path,
-    uint256 amountIn,
-    uint256 amountOutMinimum,
-    address recipient,
-    address router,
-    address crocQuery
-  ) internal sphereXGuardInternal(0x5ecdcc7d) returns (uint256 amountOut) {
-    ICrocMultiSwap.SwapStep[] memory swapStep = new ICrocMultiSwap.SwapStep[](path.length - 1);
-    IERC20(path[0]).approve(router, amountIn);
-    for (uint i = 0; i < path.length - 1; i++) {
-      (uint256 poolIdx, uint128 liquidity) = _findMostLiquidCrocPool(path[i], path[i + 1], crocQuery);
-      if (liquidity == 0) revert NoPoolFoundForMultihopSwap();
-      // base token should always be less then quote token
-      if (path[i] < path[i + 1]) {
-        swapStep[i] = ICrocMultiSwap.SwapStep(poolIdx, path[i], path[i + 1], true);
-      } else {
-        swapStep[i] = ICrocMultiSwap.SwapStep(poolIdx, path[i + 1], path[i], false);
-      }
-    }
-    amountOut = ICrocMultiSwap(payable(router)).multiSwap(swapStep, uint128(amountIn), uint128(amountOutMinimum));
-    IERC20(path[path.length - 1]).safeTransfer(recipient, amountOut);
-  }
-
-  /// @notice Gets a quote for Croc swap
-  /// @dev Internal function used by getQuoteCroc
-  /// @param tokenIn Address of input token
-  /// @param tokenOut Address of output token
-  /// @param amountIn Amount of input tokens
-  /// @param router Croc Multi Swap router address
-  /// @param crocQuery CrocQuery contract address
-  /// @return amountOut Expected amount of output tokens
-  function _getQuoteCroc(
-    address tokenIn,
-    address tokenOut,
-    uint256 amountIn,
-    address router,
-    address crocQuery
-  ) internal view returns (uint256 amountOut) {
-    (, uint128 liquidity) = _findMostLiquidCrocPool(tokenIn, tokenOut, crocQuery);
-
-    address[] memory path;
-    if (liquidity == 0) {
-      // if no direct pool is found, try to find a pool between tokenIn and WrappedNative and then between WrappedNative and tokenOut
-      path = new address[](3);
-      path[0] = tokenIn;
-      path[1] = wrappedNative;
-      path[2] = tokenOut;
-    } else {
-      path = new address[](2);
-      path[0] = tokenIn;
-      path[1] = tokenOut;
-    }
-
-    return _getQuoteCrocWithPath(path, amountIn, router, crocQuery);
-  }
-
-  /// @notice Gets a quote for Croc swap with path
-  /// @dev Internal function used by getQuoteCrocWithPath
-  /// @param path Array of token addresses in swap path
-  /// @param amountIn Amount of input tokens
-  /// @param router Croc Multi Swap router address
-  /// @param crocQuery CrocQuery contract address
-  /// @return amountOut Expected amount of output tokens
-  function _getQuoteCrocWithPath(
-    address[] memory path,
-    uint256 amountIn,
-    address router,
-    address crocQuery
-  ) internal view returns (uint256 amountOut) {
-    ICrocMultiSwap.SwapStep[] memory swapStep = new ICrocMultiSwap.SwapStep[](path.length - 1);
-    for (uint i = 0; i < path.length - 1; i++) {
-      (uint256 poolIdx, uint128 liquidity) = _findMostLiquidCrocPool(path[i], path[i + 1], crocQuery);
-      if (liquidity == 0) revert NoPoolFoundForMultihopSwap();
-      if (path[i] < path[i + 1]) {
-        // base token should always be less then quote token
-        swapStep[i] = ICrocMultiSwap.SwapStep(poolIdx, path[i], path[i + 1], true);
-      } else {
-        swapStep[i] = ICrocMultiSwap.SwapStep(poolIdx, path[i + 1], path[i], false);
-      }
-    }
-    (amountOut, ) = ICrocMultiSwap(payable(router)).previewMultiSwap(swapStep, uint128(amountIn));
-  }
-
   /// @notice Gets a quote for V3 swap
   /// @dev Internal function used by getQuoteV3
   /// @param tokenIn Address of input token
@@ -854,6 +766,31 @@ contract SwapRouter is SphereXProtected, ReentrancyGuard, ISwapRouter {
       // amount in is now the amount out of the last pool
       amountIn = amountOut;
     }
+  }
+
+  function _getBexQuote(
+    bytes32 poolId,
+    address tokenIn,
+    address tokenOut,
+    uint256 amountIn
+  ) internal returns (uint256 amountOut) {
+    return
+      IBalancerQueries(balancerQueries).querySwap(
+        IBeraVault.SingleSwap({
+          poolId: poolId,
+          kind: IBeraVault.SwapKind.GIVEN_IN,
+          assetIn: IAsset(tokenIn),
+          assetOut: IAsset(tokenOut),
+          amount: amountIn,
+          userData: bytes("")
+        }),
+        IBeraVault.FundManagement({
+          sender: address(this),
+          fromInternalBalance: false,
+          recipient: payable(address(this)),
+          toInternalBalance: false
+        })
+      );
   }
 
   /// @notice Gets quote for V2 swap

@@ -24,6 +24,7 @@ contract InfraredFactory is StrategyFactoryBase {
     address timelock;
     address devfund;
     address treasury;
+    address harvester;
     address wrappedNative;
     address bgt;
     address swapRouter;
@@ -66,7 +67,7 @@ contract InfraredFactory is StrategyFactoryBase {
       new InfraredStrategy(
         params.asset,
         params.governance,
-        params.strategist,
+        params.harvester,
         controller,
         params.timelock,
         params.wrappedNative,
@@ -103,6 +104,7 @@ contract InfraredFactory is StrategyFactoryBase {
       params.timelock == address(0) ||
       params.devfund == address(0) ||
       params.treasury == address(0) ||
+      params.harvester == address(0) ||
       params.staking == address(0) ||
       params.swapRouter == address(0) ||
       params.lpRouter == address(0) ||

@@ -5,6 +5,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ISwapRouter} from "../interfaces/ISwapRouter.sol";
 import {MockERC20} from "./MockERC20.sol";
 
+import {IBeraPool} from "../interfaces/exchange/Beraswap.sol";
+
 contract MockSwapRouter is ISwapRouter {
   address public immutable wrappedNative;
   DexType public defaultDex;

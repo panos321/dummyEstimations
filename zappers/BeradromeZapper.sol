@@ -26,6 +26,8 @@ import {SphereXProtected} from "@spherex-xyz/contracts/src/SphereXProtected.sol"
 contract BeradromeZapper is ZapperBase {
   using SafeERC20 for IERC20;
 
+  address ibgt = 0x46eFC86F0D7455F135CC9df501673739d513E982;
+
   constructor(
     address dev,
     address wrappedNative,
@@ -60,20 +62,29 @@ contract BeradromeZapper is ZapperBase {
     if (recipient != address(this)) {
       tokenInAmount = _safeTransferFromTokens(tokenIn, tokenInAmount);
     }
-    // Swap tokenIn to asset if needed
-    if (asset != address(tokenIn)) {
-      IERC20(tokenIn).safeTransfer(address(swapRouter), tokenInAmount);
-      tokenInAmount = swapRouter.swapWithDefaultDex(address(tokenIn), asset, tokenInAmount, 0, address(this));
+
+    // BEX lp
+    if (asset != ibgt) {
+      IERC20(tokenIn).forceApprove(address(lpRouter), tokenInAmount);
+      tokenOutAmount = lpRouter.addLiquidity(asset, tokenIn, tokenInAmount, address(this), IDexType.DexType.BEX);
+    } else {
+      // Swap tokenIn to asset if needed
+      if (asset != address(tokenIn)) {
+        IERC20(tokenIn).safeTransfer(address(swapRouter), tokenInAmount);
+        tokenInAmount = swapRouter.swapWithDefaultDex(address(tokenIn), asset, tokenInAmount, 0, address(this));
+      }
+
+      // Get LP tokens balance from steer vault
+      tokenOutAmount = IERC20(asset).balanceOf(address(this));
     }
 
-    // Get LP tokens balance from steer vault
-    tokenOutAmount = IERC20(asset).balanceOf(address(this));
     if (recipient != address(this)) {
       IERC20(asset).safeTransfer(recipient, tokenOutAmount);
     }
 
     address[] memory tokens = new address[](1);
     tokens[0] = address(tokenIn);
+
     returnedAssets = _returnAssets(tokens);
   }
 

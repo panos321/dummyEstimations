@@ -252,7 +252,7 @@ contract GammaZapper is ZapperBase {
     address gammaVault,
     address tokenIn,
     uint256 tokenInAmount
-  ) internal view returns (uint256 amount0, uint256 amount1, address token0, address token1) {
+  ) internal returns (uint256 amount0, uint256 amount1, address token0, address token1) {
     (token0, token1) = (IHypervisor(gammaVault).token0(), IHypervisor(gammaVault).token1());
     amount0 = tokenInAmount / 2;
     (, amount1) = IUniProxy(gammaUniProxy).getDepositAmount(gammaVault, token0, amount0);

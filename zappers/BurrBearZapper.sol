@@ -14,13 +14,8 @@ import {IBeraPool, IBeraVault, IAsset} from "../interfaces/exchange/Beraswap.sol
  * @title InfraredZapper
  * @notice A zapper contract that enables single-token deposits and withdrawals for Infrared Strategy
  */
-contract InfraredZapper is ZapperBase {
+contract BurrBearZapper is ZapperBase {
   using SafeERC20 for IERC20;
-
-  mapping(address => bool) public isAssetSingleToken;
-  mapping(address => IDexType.DexType) public assetDex;
-
-  event AssetInfoSet(address asset, bool isSingleToken, IDexType.DexType dex);
 
   constructor(
     address devAddress,
@@ -58,16 +53,6 @@ contract InfraredZapper is ZapperBase {
       tokenInAmount = _safeTransferFromTokens(tokenIn, tokenInAmount);
     }
 
-    address[] memory tokens;
-    if (isAssetSingleToken[asset]) {
-      IERC20(tokenIn).safeTransfer(address(swapRouter), tokenInAmount);
-      tokenOutAmount = swapRouter.swapWithDefaultDex(address(tokenIn), asset, tokenInAmount, 0, recipient);
-      tokens = new address[](1);
-      tokens[0] = address(tokenIn);
-      returnedAssets = _returnAssets(tokens);
-      return (tokenOutAmount, returnedAssets);
-    }
-
     return _swapToAssetsLp(asset, tokenIn, tokenInAmount, recipient);
   }
 
@@ -88,12 +73,12 @@ contract InfraredZapper is ZapperBase {
   ) internal returns (uint256 tokenOutAmount, ReturnedAsset[] memory returnedAssets) {
     // Add liquidity
     IERC20(tokenIn).safeTransfer(address(lpRouter), tokenInAmount);
-    tokenOutAmount = lpRouter.addLiquidity(asset, tokenIn, tokenInAmount, recipient, assetDex[asset]);
+    tokenOutAmount = lpRouter.addLiquidity(asset, tokenIn, tokenInAmount, recipient, IDexType.DexType.BEX);
 
     // Return assets
-    address[] memory checkTokens = new address[](1);
-    checkTokens[0] = tokenIn;
-    returnedAssets = _returnAssets(checkTokens);
+    address[] memory tokens = new address[](1);
+    tokens[0] = tokenIn;
+    returnedAssets = _returnAssets(tokens);
   }
 
   /**
@@ -121,15 +106,6 @@ contract InfraredZapper is ZapperBase {
       assetsInAmount = _safeTransferFromTokens(asset, assetsInAmount);
     }
 
-    if (isAssetSingleToken[asset]) {
-      IERC20(asset).safeTransfer(address(swapRouter), assetsInAmount);
-      tokenOutAmount = swapRouter.swapWithDefaultDex(asset, tokenOut, assetsInAmount, 0, recipient);
-      address[] memory tokens = new address[](1);
-      tokens[0] = asset;
-      returnedAssets = _returnAssets(tokens);
-      return (tokenOutAmount, returnedAssets);
-    }
-
     return _swapFromAssetsLp(asset, tokenOut, assetsInAmount, recipient);
   }
 
@@ -147,24 +123,13 @@ contract InfraredZapper is ZapperBase {
     address tokenOut,
     uint256 assetsInAmount,
     address recipient
-  ) internal returns (uint256 tokenOutAmount, ReturnedAsset[] memory returnedAssets) {
+  ) internal returns (uint256 tokenOutAmount, ReturnedAsset[] memory) {
     // Remove liquidity
     IERC20(asset).safeTransfer(address(lpRouter), assetsInAmount);
-    tokenOutAmount = lpRouter.removeLiquidity(asset, assetsInAmount, recipient, tokenOut, assetDex[asset]);
+    tokenOutAmount = lpRouter.removeLiquidity(asset, assetsInAmount, recipient, tokenOut, IDexType.DexType.BEX);
 
     if (recipient != address(this)) {
       _returnAsset(tokenOut, recipient);
     }
-
-    address[] memory checkTokens = new address[](1);
-    checkTokens[0] = address(0);
-    returnedAssets = _returnAssets(checkTokens);
-  }
-
-  function setAssetInfo(address asset, bool isSingleToken, IDexType.DexType dex) external onlyGovernance {
-    _revertAddressZero(asset);
-    isAssetSingleToken[asset] = isSingleToken;
-    assetDex[asset] = dex;
-    emit AssetInfoSet(asset, isSingleToken, dex);
   }
 }

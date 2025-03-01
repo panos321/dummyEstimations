@@ -459,17 +459,18 @@ contract ArberaZapper is ZapperBase {
     (tokenInAmount, feeAmount) = _transferFee(tokenIn, zapInFee, tokenInAmount);
 
     // convert the input token to the vault's asset if needed
+    uint256 assetsIn;
     if (vault.asset() != tokenIn) {
-      (tokenInAmount, returnedAssets) = swapToAssets(vault.asset(), tokenIn, tokenInAmount, address(this));
+      (assetsIn, returnedAssets) = swapToAssets(vault.asset(), tokenIn, tokenInAmount, address(this));
     }
 
     // approve the asset to the vault
-    IERC20(vault.asset()).forceApprove(address(vault), tokenInAmount);
+    IERC20(vault.asset()).forceApprove(address(vault), assetsIn);
 
     // deposit the asset to the vault
-    shares = vault.deposit(tokenInAmount, msg.sender, minShares);
+    shares = vault.deposit(assetsIn, msg.sender, minShares);
     vault.earn();
-    emit ZapIn(msg.sender, address(vault), tokenIn, tokenInAmount, shares, feeAmount);
+    emit ZapIn(msg.sender, address(vault), tokenIn, tokenInAmount, assetsIn, shares, feeAmount, returnedAssets);
   }
 
   /**
@@ -510,22 +511,18 @@ contract ArberaZapper is ZapperBase {
     (tokenInAmount, feeAmount) = _transferFee(tokenIn, zapInFee, tokenInAmount);
 
     // convert the input token to the vault's asset if needed
+    uint256 assetsIn;
     if (vault.asset() != address(tokenIn)) {
-      (tokenInAmount, returnedAssets) = swapToAssetsWithBond(
-        vault.asset(),
-        address(tokenIn),
-        tokenInAmount,
-        address(this)
-      );
+      (assetsIn, returnedAssets) = swapToAssetsWithBond(vault.asset(), address(tokenIn), tokenInAmount, address(this));
     }
 
     // approve the vault's asset to the vault to deposit
-    IERC20(vault.asset()).forceApprove(address(vault), tokenInAmount);
+    IERC20(vault.asset()).forceApprove(address(vault), assetsIn);
 
     // deposit the converted token to the vault
-    shares = vault.deposit(tokenInAmount, msg.sender, minShares);
+    shares = vault.deposit(assetsIn, msg.sender, minShares);
     vault.earn();
-    emit ZapIn(msg.sender, address(vault), tokenIn, tokenInAmount, shares, feeAmount);
+    emit ZapIn(msg.sender, address(vault), tokenIn, tokenInAmount, assetsIn, shares, feeAmount, returnedAssets);
   }
 
   /**
@@ -557,7 +554,6 @@ contract ArberaZapper is ZapperBase {
 
     // transfer the fee
     uint256 feeAmount;
-    (assetsOut, feeAmount) = _transferFee(tokenOut, zapOutFee, assetsOut);
 
     // convert the vault's asset to the desired token
     if (vault.asset() == tokenOut) {
@@ -566,11 +562,21 @@ contract ArberaZapper is ZapperBase {
       (tokenOutAmount, returnedAssets) = swapFromAssetsWithBond(vault.asset(), tokenOut, assetsOut, address(this));
     }
 
+    (assetsOut, feeAmount) = _transferFee(tokenOut, zapOutFee, assetsOut);
     // return the tokens
     _returnAsset(tokenOut, msg.sender);
 
     if (tokenOutAmount < minTokenOutAmount)
       revert InsufficientOutputAmount(tokenOut, tokenOutAmount, minTokenOutAmount);
-    emit ZapOut(msg.sender, address(vault), tokenOut, tokenOutAmount, sharesAmount, feeAmount);
+    emit ZapOut(
+      msg.sender,
+      address(vault),
+      tokenOut,
+      tokenOutAmount,
+      assetsOut,
+      sharesAmount,
+      feeAmount,
+      returnedAssets
+    );
   }
 }

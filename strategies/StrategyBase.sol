@@ -98,6 +98,8 @@ abstract contract StrategyBase is SphereXProtected, ReentrancyGuard, IStrategy {
     swapRouter = ISwapRouter(swapRouterAddress);
     lpRouter = ILpRouter(lpRouterAddress);
     zapper = IZapper(zapperAddress);
+    harvesters[strategistAddress] = true;
+    emit HarvesterWhitelisted(strategistAddress);
   }
 
   receive() external payable {
@@ -199,9 +201,7 @@ abstract contract StrategyBase is SphereXProtected, ReentrancyGuard, IStrategy {
 
   /// @notice Adds an address to the list of authorized harvesters
   /// @param harvesterAddress Address to authorize for harvesting
-  function whitelistHarvester(address harvesterAddress) external sphereXGuardExternal(0x6e38ed4d) {
-    if (msg.sender != governance && msg.sender != strategist && !harvesters[msg.sender])
-      revert NotAuthorizedForHarvester();
+  function whitelistHarvester(address harvesterAddress) external sphereXGuardExternal(0x6e38ed4d) onlyBenevolent {
     _revertAddressZero(harvesterAddress);
     harvesters[harvesterAddress] = true;
     emit HarvesterWhitelisted(harvesterAddress);
@@ -209,8 +209,7 @@ abstract contract StrategyBase is SphereXProtected, ReentrancyGuard, IStrategy {
 
   /// @notice Removes an address from the list of authorized harvesters
   /// @param harvesterAddress Address to revoke harvesting rights from
-  function revokeHarvester(address harvesterAddress) external sphereXGuardExternal(0x6f4a07f4) {
-    if (msg.sender != governance && msg.sender != strategist) revert NotAuthorizedForHarvester();
+  function revokeHarvester(address harvesterAddress) external sphereXGuardExternal(0x6f4a07f4) onlyBenevolent {
     _revertAddressZero(harvesterAddress);
     harvesters[harvesterAddress] = false;
     emit HarvesterRevoked(harvesterAddress);

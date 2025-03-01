@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {StrategyFactoryBase} from "./StrategyFactoryBase.sol";
-import {BeradromeStrategy} from "../strategies/BeradromeStrategy.sol";
+import {BurrBearStrategy} from "../strategies/BurrBearStrategy.sol";
 import {IStrategy} from "../interfaces/IStrategy.sol";
 import {IVault} from "../interfaces/IVault.sol";
 import {IStrategy} from "../interfaces/IStrategy.sol";
@@ -10,14 +10,14 @@ import {IController} from "../interfaces/IController.sol";
 import {SphereXConfiguration} from "@spherex-xyz/contracts/src/SphereXConfiguration.sol";
 
 /**
- * @title BeradromeFactory
- * @notice Factory contract for deploying Beradrome strategy vaults
- * @dev Inherits from StrategyFactoryBase and handles the creation of Beradrome-specific vaults,
+ * @title BurrBearFactory
+ * @notice Factory contract for deploying BurrBear strategy vaults
+ * @dev Inherits from StrategyFactoryBase and handles the creation of BurrBear-specific vaults,
  * controllers and strategies
  */
-contract BeradromeFactory is StrategyFactoryBase {
-  /// @notice Vault params for creating a vault
-  struct BeradromeVaultParams {
+contract BurrBearFactory is StrategyFactoryBase {
+  /// @notice Struct to hold BurrBear vault parameters
+  struct BurrBearVaultParams {
     address asset;
     address governance;
     address strategist;
@@ -30,14 +30,12 @@ contract BeradromeFactory is StrategyFactoryBase {
     address swapRouter;
     address lpRouter;
     address zapper;
-    address gauge;
-    address staking;
     uint16 initialDepositFee;
     uint16 initialWithdrawFee;
   }
 
   /**
-   * @notice Constructs the SteerFactory contract
+   * @notice Constructs the BurrBearFactory contract
    * @param devAddress Address of the developer/admin
    * @param controllerFactoryAddress Address of the VaultAndControllerFactory contract
    * @param vaultFactoryAddress Address of the VaultFactory contract
@@ -51,15 +49,15 @@ contract BeradromeFactory is StrategyFactoryBase {
   ) StrategyFactoryBase(devAddress, controllerFactoryAddress, vaultFactoryAddress, spherexEngineAddress) {}
 
   /**
-   * @notice Creates a new vault with a Infrared strategy
-   * @param params The parameters for creating a vault
+   * @notice Creates a new vault with a BurrBear strategy
+   * @param params The parameters for the vault
    * @return vault The newly created vault
    * @return controller The newly created controller
-   * @return strategy The newly created Infrared strategy
+   * @return strategy The newly created BurrBear strategy
    * @dev Only callable by dev address and only for tokens that don't already have a vault
    */
   function createVaultWithParams(
-    BeradromeVaultParams calldata params
+    BurrBearVaultParams calldata params
   )
     external
     virtual
@@ -72,15 +70,13 @@ contract BeradromeFactory is StrategyFactoryBase {
       params.governance == address(0) ||
       params.strategist == address(0) ||
       params.timelock == address(0) ||
+      params.harvester == address(0) ||
       params.devfund == address(0) ||
       params.treasury == address(0) ||
-      params.harvester == address(0) ||
-      params.gauge == address(0) ||
-      params.staking == address(0) ||
-      params.swapRouter == address(0) ||
-      params.lpRouter == address(0) ||
       params.wrappedNative == address(0) ||
       params.bgt == address(0) ||
+      params.swapRouter == address(0) ||
+      params.lpRouter == address(0) ||
       params.zapper == address(0)
     ) revert ZeroAddress();
 
@@ -97,7 +93,7 @@ contract BeradromeFactory is StrategyFactoryBase {
     );
 
     // 2. create strategy
-    strategy = new BeradromeStrategy(
+    strategy = new BurrBearStrategy(
       params.asset,
       params.governance,
       params.harvester,
@@ -107,11 +103,10 @@ contract BeradromeFactory is StrategyFactoryBase {
       params.bgt,
       params.swapRouter,
       params.lpRouter,
-      params.zapper,
-      params.gauge,
-      params.staking
+      params.zapper
     );
     _setAddressAsSpherexProtected(address(strategy));
+
     // 3. setup vault
     _setupVault(params.asset, vault, strategy, controller, params.governance, params.timelock);
 
